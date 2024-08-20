@@ -1,1 +1,3 @@
-# hello world
+# Welcome to Cosmix
+
+The CosmWasm contract toolbox.
