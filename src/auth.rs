@@ -16,6 +16,10 @@ pub enum Authorized<T: Eq+ToString=Addr> {
   One(T),
   /// Multiple authorized addresses.
   Many(Vec<T>),
+  /// No authorized addresses.
+  None,
+  /// All addresses authorized.
+  Any,
 }
 
 impl<T: Eq+ToString> Authorized<T> {
@@ -34,6 +38,8 @@ impl<T: Eq+ToString> Authorized<T> {
           return Err(AuthError::Unauthorized {});
         }
       }
+      Authorized::None => return Err(AuthError::Unauthorized {}),
+      Authorized::Any => return Ok(()),
     };
     Ok(())
   }
@@ -45,6 +51,8 @@ impl<T: Eq+ToString> Authorized<T> {
     match match self {
       Authorized::One(authorized) => requestors.contains(authorized),
       Authorized::Many(authorized) => requestors.iter().any(|r| authorized.contains(r)),
+      Authorized::None => false,
+      Authorized::Any => true,
     } {
       true => Ok(()),
       false => Err(AuthError::Unauthorized {}),
@@ -58,6 +66,8 @@ impl<T: Eq+ToString> Authorized<T> {
     match match self {
       Authorized::One(authorized) => requestors.contains(authorized),
       Authorized::Many(authorized) => requestors.iter().all(|r| authorized.contains(r)),
+      Authorized::None => false,
+      Authorized::Any => true,
     } {
       true => Ok(()),
       false => Err(AuthError::Unauthorized {}),
@@ -73,9 +83,17 @@ impl<T: Eq+ToString> Authorized<T> {
       Authorized::Many(authorized) => {
         requestors.iter().filter(|r| authorized.contains(r)).count() as u32 >= min
       }
+      Authorized::None => false,
+      Authorized::Any => true,
     } {
       true => Ok(()),
       false => Err(AuthError::Unauthorized {}),
     }
+  }
+}
+
+impl<T: Eq+ToString> Default for Authorized<T> {
+  fn default() -> Self {
+    Authorized::None
   }
 }
