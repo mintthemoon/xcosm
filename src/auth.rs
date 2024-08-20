@@ -1,7 +1,7 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::Addr;
 
-pub type AuthResult<T=()> = Result<T, AuthError>;
+use crate::CosmixResult;
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
 pub enum AuthError {
@@ -26,19 +26,19 @@ impl<T: Eq+ToString> Authorized<T> {
   /// Authorize a single requestor.
   ///
   /// Requires requestor to match authorized.
-  pub fn authorize(&self, requestor: &T) -> AuthResult {
+  pub fn authorize(&self, requestor: &T) -> CosmixResult {
     match self {
       Authorized::One(authorized) => {
         if authorized != requestor {
-          return Err(AuthError::Unauthorized {});
+          return Err(AuthError::Unauthorized {}.into());
         }
       }
       Authorized::Many(authorized) => {
         if !authorized.contains(requestor) {
-          return Err(AuthError::Unauthorized {});
+          return Err(AuthError::Unauthorized {}.into());
         }
       }
-      Authorized::None => return Err(AuthError::Unauthorized {}),
+      Authorized::None => return Err(AuthError::Unauthorized {}.into()),
       Authorized::Any => return Ok(()),
     };
     Ok(())
@@ -47,7 +47,7 @@ impl<T: Eq+ToString> Authorized<T> {
   /// Authorize any of the requestors.
   ///
   /// Requires at least one of `requestors` to match authorized.
-  pub fn authorize_any(&self, requestors: &Vec<T>) -> AuthResult {
+  pub fn authorize_any(&self, requestors: &Vec<T>) -> CosmixResult {
     match match self {
       Authorized::One(authorized) => requestors.contains(authorized),
       Authorized::Many(authorized) => requestors.iter().any(|r| authorized.contains(r)),
@@ -55,14 +55,14 @@ impl<T: Eq+ToString> Authorized<T> {
       Authorized::Any => true,
     } {
       true => Ok(()),
-      false => Err(AuthError::Unauthorized {}),
+      false => Err(AuthError::Unauthorized {}.into()),
     }
   }
 
   /// Authorize all of the requestors.
   ///
   /// Requires all of `requestors` to match authorized.
-  pub fn authorize_all(&self, requestors: &Vec<T>) -> AuthResult {
+  pub fn authorize_all(&self, requestors: &Vec<T>) -> CosmixResult {
     match match self {
       Authorized::One(authorized) => requestors.contains(authorized),
       Authorized::Many(authorized) => requestors.iter().all(|r| authorized.contains(r)),
@@ -70,14 +70,14 @@ impl<T: Eq+ToString> Authorized<T> {
       Authorized::Any => true,
     } {
       true => Ok(()),
-      false => Err(AuthError::Unauthorized {}),
+      false => Err(AuthError::Unauthorized {}.into()),
     }
   }
 
   /// Authorize at least `min` of the requestors.
   ///
   /// Requires at least `min` of `requestors` to match authorized.
-  pub fn authorize_at_least(&self, requestors: &Vec<T>, min: u32) -> AuthResult {
+  pub fn authorize_at_least(&self, requestors: &Vec<T>, min: u32) -> CosmixResult {
     match match self {
       Authorized::One(authorized) => requestors.contains(authorized),
       Authorized::Many(authorized) => {
@@ -87,7 +87,7 @@ impl<T: Eq+ToString> Authorized<T> {
       Authorized::Any => true,
     } {
       true => Ok(()),
-      false => Err(AuthError::Unauthorized {}),
+      false => Err(AuthError::Unauthorized {}.into()),
     }
   }
 }

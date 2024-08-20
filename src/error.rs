@@ -1,9 +1,9 @@
 use cosmwasm_std::StdError;
 
-use crate::{AuthError, CoinError, MathError, ValidateError};
+use crate::{AuthError, CoinError, FundError, MathError, ValidateError};
 
 /// Type alias for `std::result::Result` with contract defaults.
-pub type CosmixResult<'a, T=(), E=CosmixError> = std::result::Result<T, E>;
+pub type CosmixResult<T=(), E=CosmixError> = std::result::Result<T, E>;
 
 /// Contract error.
 #[derive(thiserror::Error, Debug, miette::Diagnostic)]
@@ -15,6 +15,10 @@ pub enum CosmixError {
   /// Coin error.
   #[error(transparent)]
   Coin(#[from] CoinError),
+
+  /// Fund error.
+  #[error(transparent)]
+  Fund(#[from] FundError),
 
   /// Math error.
   #[error(transparent)]

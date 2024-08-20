@@ -6,11 +6,9 @@ use derive_deref::{Deref, DerefMut};
 
 use crate::{
   math::{ContainerError, TryMinusMut, TryPlusMut, ValueError},
-  validate::{ApiValidator, ValidateResult},
-  CoinError, CoinSet, IntoResult, MathError, ValidateError, Validator,
+  validate::ApiValidator,
+  CoinError, CoinSet, CosmixError, CosmixResult, IntoResult, MathError, ValidateError, Validator,
 };
-
-pub type FundResult<T=()> = Result<T, FundError>;
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
 pub enum FundError {
@@ -42,7 +40,7 @@ impl Claim {
     self.0
   }
 
-  pub fn claim(&self, funds: &CoinSet) -> FundResult<CoinSet> {
+  pub fn claim(&self, funds: &CoinSet) -> CosmixResult<CoinSet> {
     let mut claimed = funds.clone();
     for (_, amount) in claimed.iter_mut() {
       *amount = self.claim_amount(amount.u128())?.into();
@@ -50,7 +48,7 @@ impl Claim {
     Ok(claimed)
   }
 
-  pub fn claim_amount(&self, total: u128) -> FundResult<u128> {
+  pub fn claim_amount(&self, total: u128) -> CosmixResult<u128> {
     total
       .checked_mul(self.bps() as u128)
       .ok_or(MathError::Container(ContainerError::Overflow {}))?
@@ -73,15 +71,15 @@ impl Distribution {
     &self.0
   }
 
-  pub fn total_bps(&self) -> FundResult<u32> {
+  pub fn total_bps(&self) -> CosmixResult<u32> {
     let total = self.claims().iter().map(|(_, claim)| claim.bps()).sum();
     if total > 10000 {
-      return Err(FundError::DistributionOverclaimed {});
+      return Err(FundError::DistributionOverclaimed {}.into());
     }
     Ok(total)
   }
 
-  pub fn with_remainder_to(&self, addr: Addr) -> FundResult<Self> {
+  pub fn with_remainder_to(&self, addr: Addr) -> CosmixResult<Self> {
     let rem_claim = Claim(10000 - self.total_bps()?);
     let mut claims = self.claims().clone();
     match claims.entry(addr) {
@@ -96,9 +94,9 @@ impl Distribution {
     Ok(Self(claims))
   }
 
-  pub fn distribute_coins(&self, from: &Addr, funds: &CoinSet) -> FundResult<CosmosMsg> {
+  pub fn distribute_coins(&self, from: &Addr, funds: &CoinSet) -> CosmixResult<CosmosMsg> {
     if self.claims().len() == 0 {
-      return Err(FundError::DistributionUnclaimed {});
+      return Err(FundError::DistributionUnclaimed {}.into());
     }
     let mut rem = funds.clone();
     let mut claimed = self
@@ -109,7 +107,7 @@ impl Distribution {
         rem.try_minus_mut(&claimed)?;
         Ok((addr, claim.claim(funds)?))
       })
-      .collect::<FundResult<Vec<(&Addr, CoinSet)>>>()?;
+      .collect::<CosmixResult<Vec<(&Addr, CoinSet)>>>()?;
     // give remainder to first claim
     // TODO make this behavior configurable
     claimed
@@ -140,11 +138,11 @@ impl From<HashMap<Addr, Claim>> for Distribution {
 pub struct DistributionMsg(HashMap<String, Claim>);
 
 impl<'a> ApiValidator<'a, Distribution> for &DistributionMsg {
-  fn api_validate(self, api: &dyn Api) -> ValidateResult<Distribution> {
+  fn api_validate(self, api: &dyn Api) -> CosmixResult<Distribution> {
     self
       .iter()
-      .map(|(addr_str, claim)| Ok::<_, ValidateError>((api.validate(&addr_str)?, *claim)))
-      .collect::<ValidateResult<HashMap<Addr, Claim>>>()
+      .map(|(addr_str, claim)| Ok::<_, CosmixError>((api.validate(&addr_str)?, *claim)))
+      .collect::<CosmixResult<HashMap<Addr, Claim>>>()
       .map(Into::into)
   }
 }
