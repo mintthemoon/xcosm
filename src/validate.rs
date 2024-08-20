@@ -1,4 +1,6 @@
-use cosmwasm_std::{Addr, Api, StdError, StdResult};
+use cosmwasm_std::{Addr, Api};
+
+pub type ValidateResult<T=()> = Result<T, ValidateError>;
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
 pub enum ValidateError {
@@ -7,27 +9,27 @@ pub enum ValidateError {
 }
 
 /// Data validation trait.
-pub trait Validator<'a, T, U, E> {
+pub trait Validator<T, U> {
   /// Validate a value.
-  fn validate(&self, val: T) -> Result<U, E>;
+  fn validate(self, val: T) -> Result<U, ValidateError>;
 }
 
-impl<'a> Validator<'a, &'a str, Addr, StdError> for &'a dyn Api {
-  /// Validate string into address. Calls [`Api:::addr_validate`], implemented for API
-  /// consistency and demonstration.
-  fn validate(&self, val: &'a str) -> StdResult<Addr> {
-    self.addr_validate(val)
+pub trait ApiValidator<'a, T> {
+  fn api_validate(self, api: &'a dyn Api) -> ValidateResult<T>;
+}
+
+impl<'a, T: ApiValidator<'a, U>, U> Validator<T, U> for &'a dyn Api {
+  fn validate(self, val: T) -> ValidateResult<U> {
+    val.api_validate(self)
   }
 }
 
-impl<'a> Validator<'a, &'a str, Addr, ValidateError> for &'a dyn Api {
-  /// Validate string into address. Calls [`Api:::addr_validate`] and wraps error in
-  /// [`Error::Std`].
-  fn validate(&self, val: &'a str) -> Result<Addr, ValidateError> {
-    self
-      .addr_validate(val)
+impl<'a, T: AsRef<str>> ApiValidator<'a, Addr> for &'a T {
+  fn api_validate(self, api: &'a dyn Api) -> ValidateResult<Addr> {
+    api
+      .addr_validate(self.as_ref())
       .map_err(|err| ValidateError::NotValid {
-        kind: "Address".to_string(),
+        kind: "address".to_string(),
         reason: err.to_string(),
       })
   }

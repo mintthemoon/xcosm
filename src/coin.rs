@@ -1,36 +1,50 @@
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::ops::{Deref, DerefMut};
 
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
   to_json_binary, Addr, AnyMsg, BankMsg, Coin, Coins, CoinsError, CosmosMsg, Uint128,
 };
+use derive_deref::{Deref, DerefMut};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::math::TryMinus;
+use crate::TryMinusMut;
 
 pub type CoinResult<T=()> = Result<T, CoinError>;
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
 pub enum CoinError {
+  /// Coins do not meet the expected amount.
   #[error("Insufficient coins provided: expected {expected:?}")]
   Insufficient { expected: String },
 
+  /// Expected no coins, but received some.
   #[error("Empty coins required")]
   NotEmpty {},
 
+  /// Action requires exact coins.
   #[error("Exact coins required: {expected:?}")]
   NotExact { expected: String },
 
+  /// Coins lists cannot have duplicate denoms.
   #[error("Duplicate denom in coins: {denom:?}")]
   DuplicateDenom { denom: String },
 
+  /// Expected coins, but received none.
   #[error("Non-empty coins required")]
   Empty {},
+
+  /// Input/output match error for sending coins.
+  #[error("Input coins and output coins must have equal values")]
+  IoMismatch {},
+
+  /// Coin error which _should_ never occur.
+  #[error("Unexpected coin error: {msg:?}")]
+  Unexpected { msg: String },
 }
 
 impl From<CoinsError> for CoinError {
+  /// Convert a [`CoinsError`] into a [`CoinError`].
   fn from(e: CoinsError) -> Self {
     match e {
       CoinsError::DuplicateDenom => CoinError::DuplicateDenom {
@@ -41,12 +55,13 @@ impl From<CoinsError> for CoinError {
 }
 
 /// Sorted and dupe-checked map of coins that serializes as a list.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deref, DerefMut)]
 pub struct CoinSet(BTreeMap<String, Uint128>);
 
 impl CoinSet {
-  pub fn new() -> Self {
-    CoinSet(BTreeMap::new())
+  /// Create a new [`CoinSet`] from a map.
+  pub fn new(coins: BTreeMap<String, Uint128>) -> Self {
+    CoinSet(coins)
   }
 
   /// Insert the amount into the set.
@@ -61,6 +76,19 @@ impl CoinSet {
     }
   }
 
+  /// Get an iterator that yields [`Coin`] instances from the [`CoinSet`]`.
+  pub fn iter_coins(&self) -> impl Iterator<Item=Coin>+'_ {
+    self.iter().map(|(denom, amount)| Coin::new(*amount, denom))
+  }
+
+  /// Get a [`Vec<Coin`] from the [`CoinSet`].
+  pub fn into_vec(self) -> Vec<Coin> {
+    self.iter_coins().collect()
+  }
+
+  /// Validate expected coins and return the actual amount of the matching denom if it is
+  /// valid, or an error if the denom is not present or less than the expected amount.
+  ///
   /// Require coins to contain the expected denom in at least the expected amount.
   pub fn expect_coin(&self, expected: &Coin) -> CoinResult<&Uint128> {
     self
@@ -117,29 +145,32 @@ impl CoinSet {
     match self.len() {
       0..1 => Ok(send_coin(
         self
-          .iter()
+          .iter_coins()
           .next()
-          .map(|(denom, amount)| Coin::new(*amount, denom))
           .ok_or_else(|| CoinError::Empty {})?,
         to,
       )),
-      _ => Ok(send_coins(
-        self
-          .expect_some()?
-          .iter()
-          .map(|(denom, amount)| Coin::new(*amount, denom))
-          .collect(),
-        to,
-      )),
+      _ => Ok(send_coins(self.expect_some()?, to)),
     }
+  }
+
+  pub fn send_many(&self, from: &Addr, output: Vec<(&Addr, CoinSet)>) -> CoinResult<CosmosMsg> {
+    send_coins_many(self, from, output)
+  }
+}
+
+impl Default for CoinSet {
+  /// Create a default (empty) [`CoinSet`].
+  fn default() -> Self {
+    CoinSet(BTreeMap::new())
   }
 }
 
 impl Serialize for CoinSet {
   fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-    let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-    for (denom, amount) in self.iter() {
-      seq.serialize_element(&Coin::new(amount.clone(), denom.clone()))?;
+    let mut seq = serializer.serialize_seq(Some(self.len()))?;
+    for coin in self.iter_coins() {
+      seq.serialize_element(&coin)?;
     }
     seq.end()
   }
@@ -162,25 +193,11 @@ impl std::fmt::Display for CoinSet {
   }
 }
 
-impl Deref for CoinSet {
-  type Target = BTreeMap<String, Uint128>;
-
-  fn deref(&self) -> &Self::Target {
-    &self.0
-  }
-}
-
-impl DerefMut for CoinSet {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.0
-  }
-}
-
 impl TryFrom<Coins> for CoinSet {
   type Error = CoinError;
 
   fn try_from(coins: Coins) -> CoinResult<Self> {
-    Self::try_from(coins.to_vec())
+    coins.to_vec().try_into()
   }
 }
 
@@ -191,7 +208,7 @@ impl TryFrom<Vec<Coin>> for CoinSet {
   ///
   /// Requires the provided list to contain no duplicates.
   fn try_from(raw: Vec<Coin>) -> CoinResult<Self> {
-    Self::try_from(raw.as_slice())
+    raw.as_slice().try_into()
   }
 }
 
@@ -202,7 +219,7 @@ impl TryFrom<&[Coin]> for CoinSet {
   ///
   /// Requires the provided list to contain no duplicates.
   fn try_from(raw: &[Coin]) -> CoinResult<Self> {
-    let mut coins = Self::new();
+    let mut coins = Self::default();
     for coin in raw {
       coins.try_insert(&coin.denom, coin.amount)?;
     }
@@ -211,11 +228,16 @@ impl TryFrom<&[Coin]> for CoinSet {
 }
 
 impl Into<Vec<Coin>> for CoinSet {
+  /// Convert a [`CoinSet`] into a sorted `Vec<Coin>`.
   fn into(self) -> Vec<Coin> {
-    self
-      .iter()
-      .map(|(denom, amount)| Coin::new(*amount, denom))
-      .collect()
+    self.iter_coins().collect()
+  }
+}
+
+impl Into<Vec<Coin>> for &CoinSet {
+  /// Convert a [`CoinSet`] into a sorted `Vec<Coin>`.
+  fn into(self) -> Vec<Coin> {
+    self.iter_coins().collect()
   }
 }
 
@@ -228,10 +250,10 @@ pub fn send_coin(coin: Coin, to: &Addr) -> CosmosMsg {
 }
 
 /// Create bank send message for multiple coins to a single address.
-pub fn send_coins(coins: Vec<Coin>, to: &Addr) -> CosmosMsg {
+pub fn send_coins(coins: impl Into<Vec<Coin>>, to: &Addr) -> CosmosMsg {
   CosmosMsg::Bank(BankMsg::Send {
     to_address: to.to_string(),
-    amount: coins,
+    amount: coins.into(),
   })
 }
 
@@ -258,17 +280,18 @@ pub struct BankMsgMultiSend {
 /// Create bank multi-send message for multiple coins to multiple addresses. Not supported
 /// natively in `cosmwasm_std`; encodes a `/cosmos.bank.v1beta1.MsgMultiSend` as
 /// [`BankMsgMultiSend`] using [`CosmosMsg::Any`]`.
+#[cfg(feature = "cosmwasm_2_0")]
 pub fn send_coins_many(
-  coins: Vec<Coin>,
-  from: Addr,
-  to: Vec<(Addr, Vec<Coin>)>,
+  coins: &CoinSet,
+  from: &Addr,
+  to: Vec<(&Addr, CoinSet)>,
 ) -> CoinResult<CosmosMsg> {
-  let coins_remaining: CoinSet = coins.try_into()?;
+  let mut rem: CoinSet = coins.clone();
   let mut outputs: Vec<BankMsgIo> = Vec::with_capacity(to.len());
   for (addr, out_coins) in to.into_iter() {
-    for coin in out_coins {
-      coins_remaining
-        .try_minus(&coin)
+    for coin in out_coins.iter_coins() {
+      rem
+        .try_minus_mut(&coin)
         .map_err(|_| CoinError::Insufficient {
           expected: coin.to_string(),
         })?;
@@ -278,12 +301,28 @@ pub fn send_coins_many(
       });
     }
   }
+  rem.expect_none().map_err(|_| CoinError::IoMismatch {})?;
   let inputs: Vec<BankMsgIo> = vec![BankMsgIo {
-    address: from,
-    coins: coins_remaining.into(),
+    address: from.clone(),
+    coins: coins.into(),
   }];
   Ok(CosmosMsg::Any(AnyMsg {
     type_url: "/cosmos.bank.v1beta1.MsgMultiSend".to_string(),
-    value: to_json_binary(&BankMsgMultiSend { inputs, outputs }).unwrap(),
+    value: to_json_binary(&BankMsgMultiSend { inputs, outputs }).map_err(|err| {
+      CoinError::Unexpected {
+        msg: format!("unable to serialize BankMsgMultiSend: {}", err),
+      }
+    })?,
   }))
+}
+
+#[cfg(not(feature = "cosmwasm_2_0"))]
+pub fn send_coins_many(
+  _coins: &CoinSet,
+  _from: &Addr,
+  to: Vec<(&Addr, CoinSet)>,
+) -> CoinResult<CosmosMsg> {
+  to.into_iter()
+    .map(|(addr, out_coins)| send_coins(out_coins.into(), addr))
+    .collect()
 }
