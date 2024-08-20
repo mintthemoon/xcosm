@@ -23,6 +23,17 @@ pub enum Authorized<T: Eq+ToString=Addr> {
 }
 
 impl<T: Eq+ToString> Authorized<T> {
+  /// Create a new `Authorized` group.
+  pub fn new<'a, U: Into<&'a [T]>>(group: U) -> Self
+  where T: Clone+'a {
+    let authorized: &[T] = group.into();
+    match authorized.len() {
+      0 => Authorized::None,
+      1 => Authorized::One(authorized[0].clone()),
+      _ => Authorized::Many(authorized.to_vec()),
+    }
+  }
+
   /// Authorize a single requestor.
   ///
   /// Requires requestor to match authorized.
@@ -95,5 +106,16 @@ impl<T: Eq+ToString> Authorized<T> {
 impl<T: Eq+ToString> Default for Authorized<T> {
   fn default() -> Self {
     Authorized::None
+  }
+}
+
+impl<T: Eq+ToString, U: From<T>> Into<Vec<U>> for Authorized<T> {
+  fn into(self) -> Vec<U> {
+    match self {
+      Authorized::One(authorized) => vec![authorized.into()],
+      Authorized::Many(authorized) => authorized.into_iter().map(Into::into).collect(),
+      Authorized::None => vec![],
+      Authorized::Any => vec![],
+    }
   }
 }
