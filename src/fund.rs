@@ -133,6 +133,17 @@ impl From<HashMap<Addr, Claim>> for Distribution {
   }
 }
 
+impl Into<DistributionMsg> for Distribution {
+  fn into(self) -> DistributionMsg {
+    DistributionMsg(
+      self
+        .iter()
+        .map(|(addr, claim)| (addr.to_string(), *claim))
+        .collect(),
+    )
+  }
+}
+
 #[cw_serde]
 #[derive(Deref, DerefMut)]
 pub struct DistributionMsg(HashMap<String, Claim>);
