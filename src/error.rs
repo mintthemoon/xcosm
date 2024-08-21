@@ -3,11 +3,11 @@ use cosmwasm_std::StdError;
 use crate::{AuthError, CoinError, FundError, MathError, ValidateError};
 
 /// Type alias for `std::result::Result` with contract defaults.
-pub type CosmixResult<T=(), E=CosmixError> = std::result::Result<T, E>;
+pub type XcosmResult<T=(), E=XcosmError> = std::result::Result<T, E>;
 
 /// Contract error.
 #[derive(thiserror::Error, Debug, miette::Diagnostic)]
-pub enum CosmixError {
+pub enum XcosmError {
   /// Auth error.
   #[error(transparent)]
   Auth(#[from] AuthError),
@@ -41,11 +41,11 @@ pub enum CosmixError {
   Parse {},
 }
 
-impl Into<StdError> for CosmixError {
+impl Into<StdError> for XcosmError {
   /// Convert contract error into CosmWasm standard error.
   fn into(self) -> StdError {
     match self {
-      CosmixError::Std(err) => err,
+      XcosmError::Std(err) => err,
       _ => StdError::generic_err(self.to_string()),
     }
   }

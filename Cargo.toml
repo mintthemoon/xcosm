@@ -1,5 +1,5 @@
 [package]
-name = "cosmix"
+name = "xcosm"
 version = "0.0.0"
 authors = ["mintthemoon <mint@mintthemoon.xyz>"]
 edition = "2021"

@@ -1,3 +1,3 @@
-# Welcome to Cosmix
+# Welcome to Xcosm
 
 The CosmWasm contract toolbox.

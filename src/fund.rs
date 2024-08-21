@@ -7,7 +7,7 @@ use derive_deref::{Deref, DerefMut};
 use crate::{
   math::{ContainerError, TryMinusMut, TryPlusMut, ValueError},
   validate::ApiValidator,
-  CoinError, CoinSet, CosmixError, CosmixResult, IntoResult, MathError, ValidateError, Validator,
+  CoinError, CoinSet, IntoResult, MathError, ValidateError, Validator, XcosmError, XcosmResult,
 };
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
@@ -40,7 +40,7 @@ impl Claim {
     self.0
   }
 
-  pub fn claim(&self, funds: &CoinSet) -> CosmixResult<CoinSet> {
+  pub fn claim(&self, funds: &CoinSet) -> XcosmResult<CoinSet> {
     let mut claimed = funds.clone();
     for (_, amount) in claimed.iter_mut() {
       *amount = self.claim_amount(amount.u128())?.into();
@@ -48,7 +48,7 @@ impl Claim {
     Ok(claimed)
   }
 
-  pub fn claim_amount(&self, total: u128) -> CosmixResult<u128> {
+  pub fn claim_amount(&self, total: u128) -> XcosmResult<u128> {
     total
       .checked_mul(self.bps() as u128)
       .ok_or(MathError::Container(ContainerError::Overflow {}))?
@@ -71,7 +71,7 @@ impl Distribution {
     &self.0
   }
 
-  pub fn total_bps(&self) -> CosmixResult<u32> {
+  pub fn total_bps(&self) -> XcosmResult<u32> {
     let total = self.claims().iter().map(|(_, claim)| claim.bps()).sum();
     if total > 10000 {
       return Err(FundError::DistributionOverclaimed {}.into());
@@ -79,7 +79,7 @@ impl Distribution {
     Ok(total)
   }
 
-  pub fn with_remainder_to(&self, addr: Addr) -> CosmixResult<Self> {
+  pub fn with_remainder_to(&self, addr: Addr) -> XcosmResult<Self> {
     let rem_claim = Claim(10000 - self.total_bps()?);
     let mut claims = self.claims().clone();
     match claims.entry(addr) {
@@ -94,7 +94,7 @@ impl Distribution {
     Ok(Self(claims))
   }
 
-  pub fn distribute_coins(&self, from: &Addr, funds: &CoinSet) -> CosmixResult<CosmosMsg> {
+  pub fn distribute_coins(&self, from: &Addr, funds: &CoinSet) -> XcosmResult<CosmosMsg> {
     if self.claims().len() == 0 {
       return Err(FundError::DistributionUnclaimed {}.into());
     }
@@ -107,7 +107,7 @@ impl Distribution {
         rem.try_minus_mut(&claimed)?;
         Ok((addr, claim.claim(funds)?))
       })
-      .collect::<CosmixResult<Vec<(&Addr, CoinSet)>>>()?;
+      .collect::<XcosmResult<Vec<(&Addr, CoinSet)>>>()?;
     // give remainder to first claim
     // TODO make this behavior configurable
     claimed
@@ -149,36 +149,36 @@ impl Into<DistributionMsg> for Distribution {
 pub struct DistributionMsg(HashMap<String, Claim>);
 
 impl<'a> ApiValidator<'a, Distribution> for &DistributionMsg {
-  fn api_validate(self, api: &dyn Api) -> CosmixResult<Distribution> {
+  fn api_validate(self, api: &dyn Api) -> XcosmResult<Distribution> {
     self
       .iter()
-      .map(|(addr_str, claim)| Ok::<_, CosmixError>((api.validate(&addr_str)?, *claim)))
-      .collect::<CosmixResult<HashMap<Addr, Claim>>>()
+      .map(|(addr_str, claim)| Ok::<_, XcosmError>((api.validate(&addr_str)?, *claim)))
+      .collect::<XcosmResult<HashMap<Addr, Claim>>>()
       .map(Into::into)
   }
 }
 
 pub trait MessageFunds {
-  fn expect_funds(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult;
-  fn expect_funds_exact(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult;
-  fn expect_no_funds(&self) -> CosmixResult;
-  fn fund_set(&self) -> CosmixResult<CoinSet>;
+  fn expect_funds(&self, expected: impl IntoIterator<Item=Coin>) -> XcosmResult;
+  fn expect_funds_exact(&self, expected: impl IntoIterator<Item=Coin>) -> XcosmResult;
+  fn expect_no_funds(&self) -> XcosmResult;
+  fn fund_set(&self) -> XcosmResult<CoinSet>;
 }
 
 impl MessageFunds for MessageInfo {
-  fn expect_funds<'a>(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult {
+  fn expect_funds<'a>(&self, expected: impl IntoIterator<Item=Coin>) -> XcosmResult {
     self.fund_set()?.expect_coins_exact(expected)
   }
 
-  fn expect_funds_exact<'a>(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult {
+  fn expect_funds_exact<'a>(&self, expected: impl IntoIterator<Item=Coin>) -> XcosmResult {
     self.fund_set()?.expect_coins_exact(expected)
   }
 
-  fn expect_no_funds(&self) -> CosmixResult {
+  fn expect_no_funds(&self) -> XcosmResult {
     self.fund_set()?.expect_none()
   }
 
-  fn fund_set(&self) -> CosmixResult<CoinSet> {
+  fn fund_set(&self) -> XcosmResult<CoinSet> {
     self.funds.clone().try_into()
   }
 }

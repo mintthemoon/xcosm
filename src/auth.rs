@@ -1,7 +1,7 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::Addr;
 
-use crate::CosmixResult;
+use crate::XcosmResult;
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
 pub enum AuthError {
@@ -37,7 +37,7 @@ impl<T: Eq+ToString> Authorized<T> {
   /// Authorize a single requestor.
   ///
   /// Requires requestor to match authorized.
-  pub fn authorize(&self, requestor: &T) -> CosmixResult {
+  pub fn authorize(&self, requestor: &T) -> XcosmResult {
     match self {
       Authorized::One(authorized) => {
         if authorized != requestor {
@@ -58,7 +58,7 @@ impl<T: Eq+ToString> Authorized<T> {
   /// Authorize any of the requestors.
   ///
   /// Requires at least one of `requestors` to match authorized.
-  pub fn authorize_any(&self, requestors: &Vec<T>) -> CosmixResult {
+  pub fn authorize_any(&self, requestors: &Vec<T>) -> XcosmResult {
     match match self {
       Authorized::One(authorized) => requestors.contains(authorized),
       Authorized::Many(authorized) => requestors.iter().any(|r| authorized.contains(r)),
@@ -73,7 +73,7 @@ impl<T: Eq+ToString> Authorized<T> {
   /// Authorize all of the requestors.
   ///
   /// Requires all of `requestors` to match authorized.
-  pub fn authorize_all(&self, requestors: &Vec<T>) -> CosmixResult {
+  pub fn authorize_all(&self, requestors: &Vec<T>) -> XcosmResult {
     match match self {
       Authorized::One(authorized) => requestors.contains(authorized),
       Authorized::Many(authorized) => requestors.iter().all(|r| authorized.contains(r)),
@@ -88,7 +88,7 @@ impl<T: Eq+ToString> Authorized<T> {
   /// Authorize at least `min` of the requestors.
   ///
   /// Requires at least `min` of `requestors` to match authorized.
-  pub fn authorize_at_least(&self, requestors: &Vec<T>, min: u32) -> CosmixResult {
+  pub fn authorize_at_least(&self, requestors: &Vec<T>, min: u32) -> XcosmResult {
     match match self {
       Authorized::One(authorized) => requestors.contains(authorized),
       Authorized::Many(authorized) => {

@@ -9,7 +9,7 @@ use cosmwasm_std::{
 use derive_deref::{Deref, DerefMut};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{CosmixError, CosmixResult, TryMinusMut};
+use crate::{TryMinusMut, XcosmError, XcosmResult};
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
 pub enum CoinError {
@@ -66,7 +66,7 @@ impl CoinSet {
   /// Insert the amount into the set.
   ///
   /// Requires the denom to not already be present.
-  pub fn try_insert(&mut self, denom: &String, amount: Uint128) -> CosmixResult<&mut Uint128> {
+  pub fn try_insert(&mut self, denom: &String, amount: Uint128) -> XcosmResult<&mut Uint128> {
     match self.entry(denom.clone()) {
       Entry::Occupied(entry) => Err(
         CoinError::DuplicateDenom {
@@ -87,7 +87,7 @@ impl CoinSet {
   /// valid, or an error if the denom is not present or less than the expected amount.
   ///
   /// Require coins to contain the expected denom in at least the expected amount.
-  pub fn expect_coin(&self, expected: &Coin) -> CosmixResult<&Uint128> {
+  pub fn expect_coin(&self, expected: &Coin) -> XcosmResult<&Uint128> {
     self
       .get(&expected.denom)
       .filter(|&amount| amount >= &expected.amount)
@@ -100,7 +100,7 @@ impl CoinSet {
   }
 
   /// Require coins to contain only the expected denom at exactly the expected amount.
-  pub fn expect_coin_exact(&self, expected: &Coin) -> CosmixResult {
+  pub fn expect_coin_exact(&self, expected: &Coin) -> XcosmResult {
     if self.expect_coin(expected)? != &expected.amount {
       return Err(
         CoinError::NotExact {
@@ -113,7 +113,7 @@ impl CoinSet {
   }
 
   /// Require coins to contain all the expected denoms in at least the expected amounts.
-  pub fn expect_coins<'a, I>(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult {
+  pub fn expect_coins<'a, I>(&self, expected: impl IntoIterator<Item=Coin>) -> XcosmResult {
     expected
       .into_iter()
       .map(|c| self.expect_coin(&c))
@@ -122,7 +122,7 @@ impl CoinSet {
   }
 
   /// Require coins to contain only the expected denoms at exactly the expected amounts.
-  pub fn expect_coins_exact(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult {
+  pub fn expect_coins_exact(&self, expected: impl IntoIterator<Item=Coin>) -> XcosmResult {
     expected
       .into_iter()
       .map(|c| self.expect_coin_exact(&c))
@@ -131,7 +131,7 @@ impl CoinSet {
   }
 
   /// Require coins to be empty.
-  pub fn expect_none(&self) -> CosmixResult {
+  pub fn expect_none(&self) -> XcosmResult {
     if !self.is_empty() {
       return Err(CoinError::NotEmpty {}.into());
     }
@@ -139,14 +139,14 @@ impl CoinSet {
   }
 
   /// Require coins to not be empty.
-  pub fn expect_some(&self) -> CosmixResult<&Self> {
+  pub fn expect_some(&self) -> XcosmResult<&Self> {
     if self.is_empty() {
       return Err(CoinError::Empty {}.into());
     }
     Ok(self)
   }
 
-  pub fn send(&self, to: &Addr) -> CosmixResult<CosmosMsg> {
+  pub fn send(&self, to: &Addr) -> XcosmResult<CosmosMsg> {
     match self.len() {
       0..1 => Ok(send_coin(
         self.into_iter().next().ok_or_else(|| CoinError::Empty {})?,
@@ -156,7 +156,7 @@ impl CoinSet {
     }
   }
 
-  pub fn send_many(&self, from: &Addr, output: Vec<(&Addr, CoinSet)>) -> CosmixResult<CosmosMsg> {
+  pub fn send_many(&self, from: &Addr, output: Vec<(&Addr, CoinSet)>) -> XcosmResult<CosmosMsg> {
     send_coins_many(self, from, output)
   }
 }
@@ -196,20 +196,20 @@ impl std::fmt::Display for CoinSet {
 }
 
 impl TryFrom<Coins> for CoinSet {
-  type Error = CosmixError;
+  type Error = XcosmError;
 
-  fn try_from(coins: Coins) -> CosmixResult<Self> {
+  fn try_from(coins: Coins) -> XcosmResult<Self> {
     coins.try_into_coin_set()
   }
 }
 
 impl TryFrom<Vec<Coin>> for CoinSet {
-  type Error = CosmixError;
+  type Error = XcosmError;
 
   /// Create [`CoinSet`] from an unsorted `Vec<Coin>`.
   ///
   /// Requires the provided list to contain no duplicates.
-  fn try_from(raw: Vec<Coin>) -> CosmixResult<Self> {
+  fn try_from(raw: Vec<Coin>) -> XcosmResult<Self> {
     raw.try_into_coin_set()
   }
 }
@@ -253,7 +253,7 @@ pub trait TryIntoCoinSet {
 }
 
 impl<T: IntoIterator<Item=Coin>> TryIntoCoinSet for T {
-  type Error = CosmixError;
+  type Error = XcosmError;
 
   fn try_into_coin_set(self) -> Result<CoinSet, Self::Error> {
     let mut coins = CoinSet::default();
@@ -308,7 +308,7 @@ pub fn send_coins_many(
   coins: &CoinSet,
   from: &Addr,
   to: Vec<(&Addr, CoinSet)>,
-) -> CosmixResult<CosmosMsg> {
+) -> XcosmResult<CosmosMsg> {
   let mut rem: CoinSet = coins.clone();
   let mut outputs: Vec<BankMsgIo> = Vec::with_capacity(to.len());
   for (addr, out_coins) in to.into_iter() {
