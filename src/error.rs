@@ -41,7 +41,7 @@ pub enum CosmixError {
   Parse {},
 }
 
-impl<'a> Into<StdError> for CosmixError {
+impl Into<StdError> for CosmixError {
   /// Convert contract error into CosmWasm standard error.
   fn into(self) -> StdError {
     match self {
@@ -57,10 +57,9 @@ pub trait IntoResult<T, E> {
   fn into_result(self) -> Result<T, E>;
 }
 
-impl<T, E, F: From<E>> IntoResult<T, F> for Result<T, E> {
-  /// Convert contract result to CosmWasm standard result.
-  fn into_result(self) -> Result<T, F> {
-    self.map_err(F::from)
+impl<T, E, F: Into<E>> IntoResult<T, E> for Result<T, F> {
+  fn into_result(self) -> Result<T, E> {
+    self.map_err(Into::into)
   }
 }
 
@@ -68,8 +67,8 @@ pub trait FromResult<T, E> {
   fn from_result(res: Result<T, E>) -> Self;
 }
 
-impl<T, E, F: Into<E>> FromResult<T, F> for Result<T, E> {
-  fn from_result(res: Result<T, F>) -> Self {
+impl<T, E: Into<F>, F> FromResult<T, E> for Result<T, F> {
+  fn from_result(res: Result<T, E>) -> Self {
     res.map_err(Into::into)
   }
 }
