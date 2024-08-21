@@ -1,5 +1,6 @@
-use std::collections::btree_map::Entry;
+use std::collections::btree_map::{Entry, Iter as BTreeMapIter};
 use std::collections::BTreeMap;
+use std::iter::Map;
 
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
@@ -8,7 +9,7 @@ use cosmwasm_std::{
 use derive_deref::{Deref, DerefMut};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{CosmixError, CosmixResult, IntoResult, TryMinusMut};
+use crate::{CosmixError, CosmixResult, TryMinusMut};
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
 pub enum CoinError {
@@ -77,14 +78,9 @@ impl CoinSet {
     }
   }
 
-  /// Get an iterator that yields [`Coin`] instances from the [`CoinSet`]`.
-  pub fn iter_coins(&self) -> impl Iterator<Item=Coin>+'_ {
-    self.iter().map(|(denom, amount)| Coin::new(*amount, denom))
-  }
-
   /// Get a [`Vec<Coin`] from the [`CoinSet`].
   pub fn into_vec(self) -> Vec<Coin> {
-    self.iter_coins().collect()
+    self.into_iter().collect()
   }
 
   /// Validate expected coins and return the actual amount of the matching denom if it is
@@ -117,21 +113,20 @@ impl CoinSet {
   }
 
   /// Require coins to contain all the expected denoms in at least the expected amounts.
-  pub fn expect_coins(&self, expected: &[Coin]) -> CosmixResult<Vec<&Uint128>> {
-    expected.iter().map(|c| self.expect_coin(c)).collect()
+  pub fn expect_coins<'a, I>(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult {
+    expected
+      .into_iter()
+      .map(|c| self.expect_coin(&c))
+      .collect::<Result<Vec<_>, _>>()?;
+    Ok(())
   }
 
   /// Require coins to contain only the expected denoms at exactly the expected amounts.
-  pub fn expect_coins_exact(&self, expected: &[Coin]) -> CosmixResult {
-    let expected_coins = &CoinSet::try_from(expected)?;
-    if self != expected_coins {
-      return Err(
-        CoinError::NotExact {
-          expected: expected_coins.to_string(),
-        }
-        .into(),
-      );
-    }
+  pub fn expect_coins_exact(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult {
+    expected
+      .into_iter()
+      .map(|c| self.expect_coin_exact(&c))
+      .collect::<Result<Vec<_>, _>>()?;
     Ok(())
   }
 
@@ -154,10 +149,7 @@ impl CoinSet {
   pub fn send(&self, to: &Addr) -> CosmixResult<CosmosMsg> {
     match self.len() {
       0..1 => Ok(send_coin(
-        self
-          .iter_coins()
-          .next()
-          .ok_or_else(|| CoinError::Empty {})?,
+        self.into_iter().next().ok_or_else(|| CoinError::Empty {})?,
         to,
       )),
       _ => Ok(send_coins(self.expect_some()?, to)),
@@ -179,7 +171,7 @@ impl Default for CoinSet {
 impl Serialize for CoinSet {
   fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_seq(Some(self.len()))?;
-    for coin in self.iter_coins() {
+    for coin in self.into_iter() {
       seq.serialize_element(&coin)?;
     }
     seq.end()
@@ -207,7 +199,7 @@ impl TryFrom<Coins> for CoinSet {
   type Error = CosmixError;
 
   fn try_from(coins: Coins) -> CosmixResult<Self> {
-    coins.to_vec().try_into().into_result()
+    coins.try_into_coin_set()
   }
 }
 
@@ -218,36 +210,57 @@ impl TryFrom<Vec<Coin>> for CoinSet {
   ///
   /// Requires the provided list to contain no duplicates.
   fn try_from(raw: Vec<Coin>) -> CosmixResult<Self> {
-    raw.as_slice().try_into().into_result()
+    raw.try_into_coin_set()
   }
 }
 
-impl TryFrom<&[Coin]> for CoinSet {
-  type Error = CosmixError;
-
-  /// Create a [`CoinSet`] from an unsorted `Coin` slice.
-  ///
-  /// Requires the provided list to contain no duplicates.
-  fn try_from(raw: &[Coin]) -> CosmixResult<Self> {
-    let mut coins = Self::default();
-    for coin in raw {
-      coins.try_insert(&coin.denom, coin.amount)?;
-    }
-    Ok(coins)
+impl Into<Coins> for CoinSet {
+  /// Convert a [`CoinSet`] into a sorted `Coins`.
+  fn into(self) -> Coins {
+    self.into_vec().try_into().unwrap()
   }
 }
 
 impl Into<Vec<Coin>> for CoinSet {
   /// Convert a [`CoinSet`] into a sorted `Vec<Coin>`.
   fn into(self) -> Vec<Coin> {
-    self.iter_coins().collect()
+    self.into_iter().collect()
   }
 }
 
 impl Into<Vec<Coin>> for &CoinSet {
   /// Convert a [`CoinSet`] into a sorted `Vec<Coin>`.
   fn into(self) -> Vec<Coin> {
-    self.iter_coins().collect()
+    self.into_iter().collect()
+  }
+}
+
+impl<'a> IntoIterator for &'a CoinSet {
+  type Item = Coin;
+  // this is nasty but best we can do until [#63063](https://github.com/rust-lang/rust/issues/63063) is resolved
+  // any other solution causes needless allocation and/or worse performance
+  type IntoIter = Map<BTreeMapIter<'a, String, Uint128>, fn((&'a String, &'a Uint128)) -> Coin>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    self.iter().map(|(denom, amount)| Coin::new(*amount, denom))
+  }
+}
+
+pub trait TryIntoCoinSet {
+  type Error;
+
+  fn try_into_coin_set(self) -> Result<CoinSet, Self::Error>;
+}
+
+impl<T: IntoIterator<Item=Coin>> TryIntoCoinSet for T {
+  type Error = CosmixError;
+
+  fn try_into_coin_set(self) -> Result<CoinSet, Self::Error> {
+    let mut coins = CoinSet::default();
+    for coin in self {
+      coins.try_insert(&coin.denom, coin.amount)?;
+    }
+    Ok(coins)
   }
 }
 
@@ -299,7 +312,7 @@ pub fn send_coins_many(
   let mut rem: CoinSet = coins.clone();
   let mut outputs: Vec<BankMsgIo> = Vec::with_capacity(to.len());
   for (addr, out_coins) in to.into_iter() {
-    for coin in out_coins.iter_coins() {
+    for coin in out_coins.into_iter() {
       rem
         .try_minus_mut(&coin)
         .map_err(|_| CoinError::Insufficient {

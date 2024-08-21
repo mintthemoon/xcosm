@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
 
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Api, CosmosMsg};
+use cosmwasm_std::{Addr, Api, Coin, CosmosMsg, MessageInfo};
 use derive_deref::{Deref, DerefMut};
 
 use crate::{
@@ -155,5 +155,30 @@ impl<'a> ApiValidator<'a, Distribution> for &DistributionMsg {
       .map(|(addr_str, claim)| Ok::<_, CosmixError>((api.validate(&addr_str)?, *claim)))
       .collect::<CosmixResult<HashMap<Addr, Claim>>>()
       .map(Into::into)
+  }
+}
+
+pub trait MessageFunds {
+  fn expect_funds(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult;
+  fn expect_funds_exact(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult;
+  fn expect_no_funds(&self) -> CosmixResult;
+  fn fund_set(&self) -> CosmixResult<CoinSet>;
+}
+
+impl MessageFunds for MessageInfo {
+  fn expect_funds<'a>(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult {
+    self.fund_set()?.expect_coins_exact(expected)
+  }
+
+  fn expect_funds_exact<'a>(&self, expected: impl IntoIterator<Item=Coin>) -> CosmixResult {
+    self.fund_set()?.expect_coins_exact(expected)
+  }
+
+  fn expect_no_funds(&self) -> CosmixResult {
+    self.fund_set()?.expect_none()
+  }
+
+  fn fund_set(&self) -> CosmixResult<CoinSet> {
+    self.funds.clone().try_into()
   }
 }
